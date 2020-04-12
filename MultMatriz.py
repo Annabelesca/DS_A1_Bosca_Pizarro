@@ -62,6 +62,7 @@ def multMat(inic,fin,ibm_cos):
     resultado=multiplicacionMatrices(matA,matB) #Llamamos a la funcion auxiliar para que haga la multiplicacion de las dos matrices
     nFichero= '%03d' % inic #Queremos que nuestro fichero quede almacenado en el cos, marcando con tres digitos la fila por la que comienzan - temp001.txt, por ejemplo
     ibm_cos.put_object(Bucket=bucketTemporal, Key='temp'+nFichero+'.txt',Body=json.dumps(resultado.__dict__))   #Guardamos en el COS la submatriz calculada
+    
     return 'temp'+nFichero+'.txt'
 
 """Funcion que se encarga vaciar el bucket en el que se almacenaran los archivos temporales de cada uno de los workers
@@ -71,8 +72,8 @@ Parametros de entrada:
 Retorna:
     String indicando que se ha finalizado el reseteo del bucket
 """
-def resetBucketTemporal(key,ibm_cos):
-    objects=ibm_cos.list_objects(Bucket=key,Prefix='temp')    #Obtenemos los datos del bucket
+def resetBucket(key,prefix,ibm_cos):
+    objects=ibm_cos.list_objects(Bucket=key,Prefix=prefix)    #Obtenemos los datos del bucket
     if 'Contents' in objects:                   #Si el bucket contiene ficheros, los borramos uno a uno
         for elements in objects['Contents']:
             nombre=elements.get('Key')
@@ -87,7 +88,7 @@ Parametros de entrada:
 Retorna:
     String indicando que se ha finalizado la multiplicacion de las matrices orginales
 """
-def reduceFunction(results,ibm_cos):    #REVISAR
+def reduceFunction(results,ibm_cos):
     resultado={'nFilas':0, 'nColumns':0, 'matriz': []}  #Cream0s un diccionario que contendra la matriz resultante
     
     if (len(results)==1):       #Solo habia un worker que ya habra calculado la matriz -> No hara falta reduce
@@ -160,6 +161,7 @@ if __name__ == '__main__':
 
         #print(iterdata)
         print("Chunks creados\n")
+        
         #Una vez tenemos los chunks asignados, llamamos a la funcion Map que se encargara de que se realicen las multiplicaciones de forma concurrente
         #matC=pw.map(multMat, iterdata)
         #pw.wait(matC)
@@ -167,15 +169,16 @@ if __name__ == '__main__':
 
         #Una vez se han creado los ficheros temporales, ha llegado el momento de juntarlos
 
-        pw.map_reduce(multMat, iterdata, reduceFunction)  #REVISAR. NO ME TERMINA DE GUSTAR ESTE REDUCE
+        pw.map_reduce(multMat, iterdata, reduceFunction)
         print(pw.get_result())
         pw.clean()
 
-        print("Procedemos a vaciar el bucket: "+bucketTemporal+"\n")
-        pw.call_async(resetBucketTemporal,bucketTemporal)
+        #Una vez generado el fichero que contiene la matriz C (matriz A * matriz B) borramos todos los archivos temporales que se hayan ido generando
+        print("Procedemos a borrar los archivos temporales que se han creado: "+bucketTemporal+"\n")
+        pw.map(resetBucket,[[bucketTemporal,'temp'],[bucketOriginal,'pywren']])
         pw.wait()
         pw.clean
-        print("Bucket temporal vaciado\n")
+        print("Bucket sin los archivos temporales\n")
         
         f_time=datetime.now()
         print('Total elapsed time='+str(f_time-i_time)+"\n")
