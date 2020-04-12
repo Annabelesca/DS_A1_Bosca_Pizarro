@@ -22,7 +22,7 @@ def crearFicheroMatriz(fil,col, key,ibm_cos):
     print("Creando matriz de "+str(fil)+"x"+str(col))
     mat = Matriz(fil,col)   #Llamamos al constructor de la clase Matriz para generar una matriz filxcol especificado en el fichero de entrada, inicializada con valores entre -10 y 10
     ibm_cos.put_object(Bucket=bucketOriginal, Key=key,Body=json.dumps(mat.__dict__)) #Guardamos en el COS la matriz creada bajo el nombre especificado en los ficheros de entrada
-    return "Se ha creado matriz de "+str(fil)+"x"+str(col)+" y se ha subido al COS con el nombre de "+key
+    #return "Se ha creado matriz de "+str(fil)+"x"+str(col)+" y se ha subido al COS con el nombre de "+key
 
 
 """Funcion auxiliar que se encarga de multiplicar dos matrices
@@ -62,7 +62,7 @@ def multMat(inic,fin,ibm_cos):
     resultado=multiplicacionMatrices(matA,matB) #Llamamos a la funcion auxiliar para que haga la multiplicacion de las dos matrices
     nFichero= '%03d' % inic #Queremos que nuestro fichero quede almacenado en el cos, marcando con tres digitos la fila por la que comienzan - temp001.txt, por ejemplo
     ibm_cos.put_object(Bucket=bucketTemporal, Key='temp'+nFichero+'.txt',Body=json.dumps(resultado.__dict__))   #Guardamos en el COS la submatriz calculada
-
+    return 'temp'+nFichero+'.txt'
 
 """Funcion que se encarga vaciar el bucket en el que se almacenaran los archivos temporales de cada uno de los workers
 Parametros de entrada:
@@ -72,13 +72,42 @@ Retorna:
     String indicando que se ha finalizado el reseteo del bucket
 """
 def resetBucketTemporal(key,ibm_cos):
-    objects=ibm_cos.list_objects(Bucket=key)    #Obtenemos los datos del bucket
+    objects=ibm_cos.list_objects(Bucket=key,Prefix='temp')    #Obtenemos los datos del bucket
     if 'Contents' in objects:                   #Si el bucket contiene ficheros, los borramos uno a uno
         for elements in objects['Contents']:
             nombre=elements.get('Key')
             ibm_cos.delete_object(Bucket=key,Key=nombre)
 
-    return ('Bucket temporal vacio')
+    #return ('Bucket temporal vacio')
+
+"""Funcion que se encarga de juntar todos los ficheros temporales para calcular la matriz resultante
+Parametros de entrada:
+    results - Lista con los ficheros que contienen las multiplicaciones de las submatrices temporales
+    ibm-cos - Cliente de COS ready-to-use
+Retorna:
+    String indicando que se ha finalizado la multiplicacion de las matrices orginales
+"""
+def reduceFunction(results,ibm_cos):    #REVISAR
+    resultado={'nFilas':0, 'nColumns':0, 'matriz': []}  #Cream0s un diccionario que contendra la matriz resultante
+    
+    if (len(results)==1):       #Solo habia un worker que ya habra calculado la matriz -> No hara falta reduce
+        matC = ibm_cos.get_object(Bucket=bucketTemporal, Key=results[0])['Body'].read()  #Obtenemos fichero de la matriz resultante
+        ibm_cos.put_object(Bucket=bucketOriginal, Key='MatrizC.txt',Body=matC.decode())  #Guardamos los datos en el COS 
+
+    else:        #Si habia mas de un worker, tenemos que juntar los ficheros que ha generado cada uno de estos
+        for elementos in results:   #Recorremos lista generada por el map que contiene los nombres de los ficheros generados
+            matC = ibm_cos.get_object(Bucket=bucketTemporal, Key=elementos)['Body'].read()  #Obtenemos fichero de la submatriz
+            matC = json.loads(matC.decode())    #Pasamos el str resultante a diccionario para que sea mas facil operar con el
+            if (resultado['nColumns']==0): resultado['nColumns']=int(matC['nColumns'])  #Inicializamos el numero de columnas (en todos los ficheros temporales son la misma)
+            resultado['nFilas']=resultado['nFilas']+matC['nFilas']  #Actualizamos numero de filas
+            for fila in matC['matriz']: #Leemos de cada fichero las fijas y las introducimos en la matriz resultante
+                resultado['matriz'].append(fila)
+
+            ibm_cos.put_object(Bucket=bucketOriginal, Key='MatrizC.txt',Body=json.dumps(resultado))   #Guardamos en el COS la matriz resultante  
+        
+    return "Matrices multiplicadas. Resultado almacenado en el Bucket: "+bucketOriginal+" con el nombre de MatrizC.txt"
+    #return resultado
+
 
 if __name__ == '__main__':
     #Si no se pasan los argumentos correctos, el programa finaliza (m, n, l y nWorkers)
@@ -108,12 +137,7 @@ if __name__ == '__main__':
         print("Matrices creadas y almacenadas en el COS correctamente\n")
         
         #Nos aseguramos que el bucket que va a contener los archivos temporales de nuestro programa esta vacio
-        print("Procedemos a vaciar el bucket: "+bucketTemporal+"\n")
-        pw.call_async(resetBucketTemporal,bucketTemporal)
-        pw.wait()
-        pw.clean
-        print("Bucket temporal vaciado\n")
-
+               
         i_time=datetime.now()
         #Una vez tenemos las matrices creadas y almacenadas en el COS, procedemos a su division en los diferentes chunks para relizar la multiplicacion --> Map
         filasPerWorker = int(m/nChunks)     
@@ -137,11 +161,21 @@ if __name__ == '__main__':
         #print(iterdata)
         print("Chunks creados\n")
         #Una vez tenemos los chunks asignados, llamamos a la funcion Map que se encargara de que se realicen las multiplicaciones de forma concurrente
-        matC=pw.map(multMat, iterdata)
-        pw.wait(matC)
-        print("Archivos temporales creados y almacenados en el COS\n")
+        #matC=pw.map(multMat, iterdata)
+        #pw.wait(matC)
+        #print("Map completado. Archivos temporales creados y almacenados en el COS\n")
 
         #Una vez se han creado los ficheros temporales, ha llegado el momento de juntarlos
+
+        pw.map_reduce(multMat, iterdata, reduceFunction)  #REVISAR. NO ME TERMINA DE GUSTAR ESTE REDUCE
+        print(pw.get_result())
+        pw.clean()
+
+        print("Procedemos a vaciar el bucket: "+bucketTemporal+"\n")
+        pw.call_async(resetBucketTemporal,bucketTemporal)
+        pw.wait()
+        pw.clean
+        print("Bucket temporal vaciado\n")
         
         f_time=datetime.now()
         print('Total elapsed time='+str(f_time-i_time)+"\n")
