@@ -53,6 +53,7 @@ Retorna:
 """
 def multMat(inic,fin,ibm_cos):
     matA = ibm_cos.get_object(Bucket=bucketOriginal, Key='MatrizA.txt')['Body'].read()  #Obtenemos fichero de la matriz de A
+    
     matA = json.loads(matA)['matriz']
     matA = matA[inic:(fin+1)]   #Seleccionamos submatriz de interes
 
@@ -138,8 +139,8 @@ if __name__ == '__main__':
         print("Matrices creadas y almacenadas en el COS correctamente\n")
         
         #Nos aseguramos que el bucket que va a contener los archivos temporales de nuestro programa esta vacio
-               
-        i_time=datetime.now()
+        
+        pw = pywren.ibm_cf_executor()
         #Una vez tenemos las matrices creadas y almacenadas en el COS, procedemos a su division en los diferentes chunks para relizar la multiplicacion --> Map
         filasPerWorker = int(m/nChunks)     
         elementosRestantes = m%nChunks          #Calculamos cuantas filas va a procesar cada worker
@@ -163,22 +164,25 @@ if __name__ == '__main__':
         print("Chunks creados\n")
         
         #Una vez tenemos los chunks asignados, llamamos a la funcion Map que se encargara de que se realicen las multiplicaciones de forma concurrente
-        #matC=pw.map(multMat, iterdata)
-        #pw.wait(matC)
-        #print("Map completado. Archivos temporales creados y almacenados en el COS\n")
-
+        i_time=datetime.now()
         #Una vez se han creado los ficheros temporales, ha llegado el momento de juntarlos
+        try:
+            m=pw.map_reduce(multMat, iterdata, reduceFunction)
+            pw.wait(m)
+            pw.clean()
+            print("Matrices multiplicadas. Matriz resultante almacenada en el Bucket "+bucketOriginal+" con el nombre de Matrix C.txt")
+        except:
+            print("Un error ha ocurrido. Comprueba que el nombre de los buckets sea el correcto y de que haya matrices existentes.")
+            exit(1)
 
-        pw.map_reduce(multMat, iterdata, reduceFunction)
-        print(pw.get_result())
-        pw.clean()
+        f_time=datetime.now()
+        print('Tiempo de ejecucion de las matrices = '+str(f_time-i_time)+"\n")
 
         #Una vez generado el fichero que contiene la matriz C (matriz A * matriz B) borramos todos los archivos temporales que se hayan ido generando
         print("Procedemos a borrar los archivos temporales que se han creado: "+bucketTemporal+"\n")
-        pw.map(resetBucket,[[bucketTemporal,'temp'],[bucketOriginal,'pywren']])
-        pw.wait()
+        reset=pw.map(resetBucket,[[bucketTemporal,'temp'],[bucketOriginal,'pywren']])
+        pw.wait(reset)
         pw.clean
-        print("Bucket sin los archivos temporales\n")
+        print("Archivos temporales borrados\n")
         
-        f_time=datetime.now()
-        print('Total elapsed time='+str(f_time-i_time)+"\n")
+        
