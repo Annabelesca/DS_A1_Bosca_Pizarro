@@ -30,16 +30,22 @@ Parametros de entrada:
     matA - Lista de listas que representa al subconjunto de filas a trabajar
     matB - Diccionario que contiene la matriz y sus datos (nFilas y nColumnas)
 Retorna:
-    Objeto matriz con el resultado de la multiplicacion de las dos matrices de entrada
+    Diccionario que contiene la matriz con el resultado de la multiplicacion de las dos matrices de entrada
 """
 def multiplicacionMatrices(matA, matB):
-    resultado = Matriz(len(matA),matB['nColumns'])  
-    for i in range(len(matA)):                      
-        for j in range(matB['nColumns']):
+    resultado={'nFilas':len(matA), 'nColumns':matB['nColumns'], 'matriz': []}   #Definimos la matriz resultante como un diccionario. 
+    #Tendra el mismo numero de filas que la matriz A y el mismo numero de columnas que la matriz B
+    
+    for i in range(len(matA)):     #Recorremos filas de la matriz A
+        fila=[]                 
+        for j in range(matB['nColumns']):   #Recorremos columnas de la matriz B
             suma=0
-            for c in range(len(matA[0])):
-                suma+=matA[i][c]*(matB['matriz'][c][j])
-            resultado.asignarValor(i,j,suma)
+            for c in range(len(matA[0])):   #De cada columna de la matriz B, recorremos las filas
+                suma+=matA[i][c]*(matB['matriz'][c][j]) #Incrementamos el indice del resultado de la casilla
+            fila.append(suma)   #Guardamos el resultado en la fila
+            
+        resultado['matriz'].append(fila)    #Guardamos la fila entera en la matriz resultante
+
     return resultado
 
 
@@ -62,7 +68,7 @@ def multMat(inic,fin,ibm_cos):
 
     resultado=multiplicacionMatrices(matA,matB) #Llamamos a la funcion auxiliar para que haga la multiplicacion de las dos matrices
     nFichero= '%03d' % inic #Queremos que nuestro fichero quede almacenado en el cos, marcando con tres digitos la fila por la que comienzan - temp001.txt, por ejemplo
-    ibm_cos.put_object(Bucket=bucketTemporal, Key='temp'+nFichero+'.txt',Body=json.dumps(resultado.__dict__))   #Guardamos en el COS la submatriz calculada
+    ibm_cos.put_object(Bucket=bucketTemporal, Key='temp'+nFichero+'.txt',Body=json.dumps(resultado))   #Guardamos en el COS la submatriz calculada
     
     return 'temp'+nFichero+'.txt'
 
@@ -90,7 +96,7 @@ Retorna:
     String indicando que se ha finalizado la multiplicacion de las matrices orginales
 """
 def reduceFunction(results,ibm_cos):
-    resultado={'nFilas':0, 'nColumns':0, 'matriz': []}  #Cream0s un diccionario que contendra la matriz resultante
+    resultado={'nFilas':0, 'nColumns':0, 'matriz': []}  #Creamos un diccionario que contendra la matriz resultante
     
     if (len(results)==1):       #Solo habia un worker que ya habra calculado la matriz -> No hara falta reduce
         matC = ibm_cos.get_object(Bucket=bucketTemporal, Key=results[0])['Body'].read()  #Obtenemos fichero de la matriz resultante
@@ -140,7 +146,7 @@ if __name__ == '__main__':
         
         #Nos aseguramos que el bucket que va a contener los archivos temporales de nuestro programa esta vacio
         
-        pw = pywren.ibm_cf_executor()
+        #pw = pywren.ibm_cf_executor()
         #Una vez tenemos las matrices creadas y almacenadas en el COS, procedemos a su division en los diferentes chunks para relizar la multiplicacion --> Map
         filasPerWorker = int(m/nChunks)     
         elementosRestantes = m%nChunks          #Calculamos cuantas filas va a procesar cada worker
@@ -167,6 +173,7 @@ if __name__ == '__main__':
         i_time=datetime.now()
         #Una vez se han creado los ficheros temporales, ha llegado el momento de juntarlos
         try:
+            #m=pw.map(multMat,iterdata)
             m=pw.map_reduce(multMat, iterdata, reduceFunction)
             pw.wait(m)
             pw.clean()
@@ -179,7 +186,7 @@ if __name__ == '__main__':
         print('Tiempo de ejecucion de las matrices = '+str(f_time-i_time)+"\n")
 
         #Una vez generado el fichero que contiene la matriz C (matriz A * matriz B) borramos todos los archivos temporales que se hayan ido generando
-        print("Procedemos a borrar los archivos temporales que se han creado: "+bucketTemporal+"\n")
+        print("Procedemos a borrar los archivos temporales que se han creado: ")
         reset=pw.map(resetBucket,[[bucketTemporal,'temp'],[bucketOriginal,'pywren']])
         pw.wait(reset)
         pw.clean
