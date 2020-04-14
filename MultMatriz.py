@@ -5,7 +5,7 @@ import sys
 try:
     from Matriz import Matriz
 except:
-    print("Error en el import del modulo Matriz. Asegurate que el fichero Matriz.py se encuentra en el mismo directorio que este"); exit(1)
+    print("Error en el import del modulo Matriz. Asegurate que el fichero Matriz.py se encuentra en el mismo directorio que este."); exit(1)
 
 
 
@@ -153,7 +153,7 @@ if __name__ == '__main__':
             matrices=pw.map(crearFicheroMatriz, iterdata)   #Con un map creamos de forma concurrente la matriz A y la matriz B
             pw.wait(matrices)
             pw.clean()
-            print("Matrices creadas y almacenadas en el COS correctamente\n")
+            print("Matrices creadas y almacenadas en el COS correctamente.\n")
         except:
             print("Ha habido un error en la creacion de matrices. Comprueba que los buckets existen."); exit(1)
         
