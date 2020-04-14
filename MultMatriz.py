@@ -1,8 +1,12 @@
 import pywren_ibm_cloud as pywren
-from Matriz import Matriz
 import json
 from datetime import datetime
 import sys
+try:
+    from Matriz import Matriz
+except:
+    print("Error en el import del modulo Matriz. Asegurate que el fichero Matriz.py se encuentra en el mismo directorio que este"); exit(1)
+
 
 
 bucketOriginal='originalmatrix'     #Nombre del bucket que contendra las 2 matrices originales y el resultado final de la multiplicacion 
@@ -120,29 +124,38 @@ def reduceFunction(results,ibm_cos):
 if __name__ == '__main__':
     #Si no se pasan los argumentos correctos, el programa finaliza (m, n, l y nWorkers)
     if(len(sys.argv)!=5):       
-        print('Error, s\'han de pasar 4 parametres: m, n, l i numero de Workers')
+        print('Error, hay que pasar 4 parametros: m, n, l i numero de Workers')
 
     else:
-        m=int(sys.argv[1]); n=int(sys.argv[2]); l=int(sys.argv[3]); nChunks=int(sys.argv[4])
+        try:
+            m=int(sys.argv[1]); n=int(sys.argv[2]); l=int(sys.argv[3]); nChunks=int(sys.argv[4])
+        except:
+            print("Error en el formato de los parametros. Revisalos"); exit(1)
         
         #Comprobamos que las dimensiones de las matrices sean correctas
-        if(m<1 or n<1 or l< 1): print("Les dimensions de una matriu han de ser superiors a 0"); exit(1)
+        if(m<1 or n<1 or l< 1): print("Las dimensiones de una matriz deben ser superiores a 0. Terminando programa..."); exit(1)
+
+        #Comprobamos que el numero de workers es almenos 1
+        if(nChunks<1): print("Debe haber al menos un worker. Terminando programa..."); exit(1)
         
         #Numero maximo de workers debe ser 100, si hay mas, reducimos a este valor
-        if (nChunks>100): nChunks=100; print("Nombre de chunks reduit a: "+str(nChunks))
+        if (nChunks>100): nChunks=100; print("El numero de workers debe ser 100 como maximo. Numero de workers reducido a: "+str(nChunks))
 
         #Como vamos a multiplicar row-wise, numero maximo de chunks es igual al numero de filas de la primera matriz
-        if (nChunks>l): nChunks=l; print("Nombre de chunks reduit a: "+str(nChunks))
+        if (nChunks>m): nChunks=m; print("El numero de workers debe ser igual o inferior al numero de filas de la matriz A. Numero de workers reducido a: "+str(nChunks))
 
         pw = pywren.ibm_cf_executor()
         
-        #Creamos matrices y las inicializamos de forma random (de -10 a 10)
-        print("Procedemos a crear matrices:\n"+"\tMatriz A: "+str(m)+"x"+str(n)+"\n\tMatriz B: "+str(n)+"x"+str(l)+"\n")
-        iterdata = [[m,n,'MatrizA.txt'],[n,l,'MatrizB.txt']]    
-        matrices=pw.map(crearFicheroMatriz, iterdata)   #Con un map creamos de forma concurrente la matriz A y la matriz B
-        pw.wait(matrices)
-        pw.clean()
-        print("Matrices creadas y almacenadas en el COS correctamente\n")
+        try:
+            #Creamos matrices y las inicializamos de forma random (de -10 a 10)
+            print("Procedemos a crear matrices:\n"+"\tMatriz A: "+str(m)+"x"+str(n)+"\n\tMatriz B: "+str(n)+"x"+str(l)+"\n")
+            iterdata = [[m,n,'MatrizA.txt'],[n,l,'MatrizB.txt']]    
+            matrices=pw.map(crearFicheroMatriz, iterdata)   #Con un map creamos de forma concurrente la matriz A y la matriz B
+            pw.wait(matrices)
+            pw.clean()
+            print("Matrices creadas y almacenadas en el COS correctamente\n")
+        except:
+            print("Ha habido un error en la creacion de matrices. Comprueba que los buckets existen."); exit(1)
         
         #Nos aseguramos que el bucket que va a contener los archivos temporales de nuestro programa esta vacio
         
@@ -184,7 +197,7 @@ if __name__ == '__main__':
 
         f_time=datetime.now()
         print('Tiempo de ejecucion de las matrices = '+str(f_time-i_time)+"\n")
-
+        
         #Una vez generado el fichero que contiene la matriz C (matriz A * matriz B) borramos todos los archivos temporales que se hayan ido generando
         print("Procedemos a borrar los archivos temporales que se han creado: ")
         reset=pw.map(resetBucket,[[bucketTemporal,'temp'],[bucketOriginal,'pywren']])
